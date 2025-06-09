@@ -3,7 +3,7 @@ pipeline {
     environment {
         CHANGED_SERVICES = getChangedServices()
         REGISTRY_URL = "docker.io"
-        DOCKER_IMAGE_BASENAME = "thuanlp"
+        DOCKER_IMAGE_BASENAME = "anthonynhat"
     }
 
     stages {
