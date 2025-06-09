@@ -106,7 +106,6 @@ pipeline {
             }
             steps {
                 script {
-                    sh "apt update && apt install -y maven"
                     def services = env.SERVICES.split(',')
                     def parallelBuilds = [:]
 
