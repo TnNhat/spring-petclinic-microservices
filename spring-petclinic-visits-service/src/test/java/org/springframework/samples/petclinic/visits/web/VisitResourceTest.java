@@ -25,7 +25,6 @@ import java.util.List;
 @WebMvcTest(VisitResource.class)
 @ActiveProfiles("test")
 class VisitResourceTest {
-
         @Autowired
         MockMvc mvc;
         @MockBean
