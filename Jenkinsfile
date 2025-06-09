@@ -190,5 +190,22 @@ def getServices() {
         'spring-petclinic-genai-service',
         'spring-petclinic-api-gateway',
     ]
-    return services.join(',')
+
+    // Lấy danh sách file thay đổi giữa commit hiện tại và commit trước đó
+    def changedFiles = sh(
+        script: "git diff --name-only HEAD~1 HEAD",
+        returnStdout: true
+    ).trim().split('\n')
+
+    def changedServices = services.findAll { service ->
+        changedFiles.any { changedFile ->
+            // Kiểm tra nếu file thay đổi nằm trong thư mục service
+            changedFile.startsWith("${service}/")
+        }
+    }
+
+    if (changedServices.isEmpty()) {
+        return "NONE"
+    }
+    return changedServices.join(',')
 }
