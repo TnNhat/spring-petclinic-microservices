@@ -48,6 +48,58 @@ pipeline {
                 }
             }
         }
+        stage('Run Tests') {
+    when {
+        expression { env.SERVICES.trim() && env.SERVICES != "NONE" }
+    }
+    steps {
+        script {
+            def services = env.SERVICES.split(',')
+            def parallelTests = [:]
+
+            services.each { service ->
+                parallelTests[service] = {
+                    stage("Test: ${service}") {
+                        try {
+                            echo "🔍 Running tests for ${service}"
+                            // Chạy test với maven, kích hoạt báo cáo test và coverage
+                            sh "mvn test -pl ${service} -Djacoco.skip=false"
+
+                            // Archive báo cáo test JUnit để Jenkins có thể hiển thị
+                            junit "${service}/target/surefire-reports/*.xml"
+
+                            // Publish báo cáo coverage, ví dụ dùng JaCoCo plugin
+                            jacoco execPattern: "${service}/target/jacoco.exec",
+                                   classPattern: "${service}/target/classes",
+                                   sourcePattern: "${service}/src/main/java",
+                                   exclusionPattern: '**/*Test*'
+
+                            // Kiểm tra coverage threshold thủ công (giả định xuất ra file coverage.txt)
+                            def coverageStr = sh(
+                                script: "grep -Po '(?<=INSTRUCTION COVERAGE: )\\d+(\\.\\d+)?' ${service}/target/site/jacoco/index.html || echo 0",
+                                returnStdout: true
+                            ).trim()
+
+                            def coverage = coverageStr.toFloat()
+                            echo "Coverage for ${service}: ${coverage}%"
+
+                            if (coverage < 70) {
+                                error("Coverage for ${service} is below 70%")
+                            }
+
+                        } catch (Exception e) {
+                            echo "❌ Tests failed for ${service}: ${e.getMessage()}"
+                            error("Tests failed for ${service}")
+                        }
+                    }
+                }
+            }
+
+            parallel parallelTests
+        }
+    }
+}
+
 
         stage('Build Services') {
             when {
