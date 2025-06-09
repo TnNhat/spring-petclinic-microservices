@@ -62,7 +62,6 @@ class VisitResourceTest {
         @Test
         void shouldReturnEmptyListWhenNoVisitsForMultiplePets() throws Exception {
                 given(visitRepository.findByPetIdIn(List.of(999, 888))).willReturn(List.of());
-
                 mvc.perform(get("/pets/visits?petId=999,888"))
                                 .andExpect(status().isOk())
                                 .andExpect(jsonPath("$.items.length()").value(0));
