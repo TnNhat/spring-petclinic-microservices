@@ -25,117 +25,114 @@ import java.util.List;
 @WebMvcTest(VisitResource.class)
 @ActiveProfiles("test")
 class VisitResourceTest {
+        @Autowired
+        MockMvc mvc;
+        @MockBean
+        VisitRepository visitRepository;
+        private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Autowired
-    MockMvc mvc;
+        @Test
+        void shouldFetchVisits() throws Exception {
+                given(visitRepository.findByPetIdIn(asList(111, 222)))
+                                .willReturn(
+                                                asList(
+                                                                Visit.VisitBuilder.aVisit()
+                                                                                .id(1)
+                                                                                .petId(111)
+                                                                                .build(),
+                                                                Visit.VisitBuilder.aVisit()
+                                                                                .id(2)
+                                                                                .petId(222)
+                                                                                .build(),
+                                                                Visit.VisitBuilder.aVisit()
+                                                                                .id(3)
+                                                                                .petId(222)
+                                                                                .build()));
 
-    @MockBean
-    VisitRepository visitRepository;
+                mvc.perform(get("/pets/visits?petId=111,222"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.items[0].id").value(1))
+                                .andExpect(jsonPath("$.items[1].id").value(2))
+                                .andExpect(jsonPath("$.items[2].id").value(3))
+                                .andExpect(jsonPath("$.items[0].petId").value(111))
+                                .andExpect(jsonPath("$.items[1].petId").value(222))
+                                .andExpect(jsonPath("$.items[2].petId").value(222));
+        }
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+        @Test
+        void shouldReturnEmptyListWhenNoVisitsForMultiplePets() throws Exception {
+                given(visitRepository.findByPetIdIn(List.of(999, 888))).willReturn(List.of());
 
-    @Test
-    void shouldFetchVisits() throws Exception {
-        given(visitRepository.findByPetIdIn(asList(111, 222)))
-                .willReturn(
-                        asList(
-                                Visit.VisitBuilder.aVisit()
-                                        .id(1)
-                                        .petId(111)
-                                        .build(),
-                                Visit.VisitBuilder.aVisit()
-                                        .id(2)
-                                        .petId(222)
-                                        .build(),
-                                Visit.VisitBuilder.aVisit()
-                                        .id(3)
-                                        .petId(222)
-                                        .build()));
+                mvc.perform(get("/pets/visits?petId=999,888"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.items.length()").value(0));
+        }
 
-        mvc.perform(get("/pets/visits?petId=111,222"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].id").value(1))
-                .andExpect(jsonPath("$.items[1].id").value(2))
-                .andExpect(jsonPath("$.items[2].id").value(3))
-                .andExpect(jsonPath("$.items[0].petId").value(111))
-                .andExpect(jsonPath("$.items[1].petId").value(222))
-                .andExpect(jsonPath("$.items[2].petId").value(222));
-    }
+        @Test
+        void shouldFailWhenNoPetIdProvided() throws Exception {
+                mvc.perform(get("/pets/visits"))
+                                .andExpect(status().isBadRequest());
+        }
 
-    @Test
-    void shouldReturnEmptyListWhenNoVisitsForMultiplePets() throws Exception {
-        given(visitRepository.findByPetIdIn(List.of(999, 888))).willReturn(List.of());
+        @Test
+        void shouldCreateVisit() throws Exception {
+                Visit visit = Visit.VisitBuilder.aVisit()
+                                .petId(101)
+                                .description("General checkup")
+                                .build();
 
-        mvc.perform(get("/pets/visits?petId=999,888"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(0));
-    }
+                mvc.perform(post("/owners/*/pets/101/visits")
+                                .contentType("application/json")
+                                .content(objectMapper.writeValueAsString(visit)))
+                                .andExpect(status().isCreated());
+        }
 
-    @Test
-    void shouldFailWhenNoPetIdProvided() throws Exception {
-        mvc.perform(get("/pets/visits"))
-                .andExpect(status().isBadRequest());
-    }
+        @Test
+        void shouldFailWhenPetIdIsInvalid_1() throws Exception {
+                Visit visit = Visit.VisitBuilder.aVisit()
+                                .petId(-1)
+                                .description("General checkup")
+                                .build();
 
-    @Test
-    void shouldCreateVisit() throws Exception {
-        Visit visit = Visit.VisitBuilder.aVisit()
-                .petId(101)
-                .description("General checkup")
-                .build();
+                mvc.perform(post("/owners/*/pets/-1/visits")
+                                .contentType("application/json")
+                                .content(objectMapper.writeValueAsString(visit)))
+                                .andExpect(status().isBadRequest());
+        }
 
-        mvc.perform(post("/owners/*/pets/101/visits")
-                .contentType("application/json")
-                .content(objectMapper.writeValueAsString(visit)))
-                .andExpect(status().isCreated());
-    }
+        @Test
+        void shouldFailWhenRequestBodyIsInvalid() throws Exception {
+                mvc.perform(post("/owners/*/pets/101/visits")
+                                .contentType("application/json")
+                                .content("{invalid_json}"))
+                                .andExpect(status().isBadRequest());
+        }
 
-    @Test
-    void shouldFailWhenPetIdIsInvalid_1() throws Exception {
-        Visit visit = Visit.VisitBuilder.aVisit()
-                .petId(-1)
-                .description("General checkup")
-                .build();
+        @Test
+        void shouldFetchVisitsByPetId() throws Exception {
+                given(visitRepository.findByPetId(111))
+                                .willReturn(List.of(
+                                                Visit.VisitBuilder.aVisit().id(10).petId(111).build()));
 
-        mvc.perform(post("/owners/*/pets/-1/visits")
-                .contentType("application/json")
-                .content(objectMapper.writeValueAsString(visit)))
-                .andExpect(status().isBadRequest());
-    }
+                mvc.perform(get("/owners/*/pets/111/visits"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.length()").value(1))
+                                .andExpect(jsonPath("$[0].id").value(10))
+                                .andExpect(jsonPath("$[0].petId").value(111));
+        }
 
-    @Test
-    void shouldFailWhenRequestBodyIsInvalid() throws Exception {
-        mvc.perform(post("/owners/*/pets/101/visits")
-                .contentType("application/json")
-                .content("{invalid_json}"))
-                .andExpect(status().isBadRequest());
-    }
+        @Test
+        void shouldReturnEmptyListWhenNoVisits() throws Exception {
+                given(visitRepository.findByPetId(99999999)).willReturn(List.of());
 
-    @Test
-    void shouldFetchVisitsByPetId() throws Exception {
-        given(visitRepository.findByPetId(111))
-                .willReturn(List.of(
-                        Visit.VisitBuilder.aVisit().id(10).petId(111).build()));
+                mvc.perform(get("/owners/*/pets/99999999/visits"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.length()").value(0));
+        }
 
-        mvc.perform(get("/owners/*/pets/111/visits"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].id").value(10))
-                .andExpect(jsonPath("$[0].petId").value(111));
-    }
-
-    @Test
-    void shouldReturnEmptyListWhenNoVisits() throws Exception {
-        given(visitRepository.findByPetId(99999999)).willReturn(List.of());
-
-        mvc.perform(get("/owners/*/pets/99999999/visits"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
-    }
-
-    @Test
-    void shouldFailWhenPetIdIsInvalid_2() throws Exception {
-        mvc.perform(get("/owners/*/pets/0/visits"))
-                .andExpect(status().isBadRequest());
-    }
+        @Test
+        void shouldFailWhenPetIdIsInvalid_2() throws Exception {
+                mvc.perform(get("/owners/*/pets/0/visits"))
+                                .andExpect(status().isBadRequest());
+        }
 }
