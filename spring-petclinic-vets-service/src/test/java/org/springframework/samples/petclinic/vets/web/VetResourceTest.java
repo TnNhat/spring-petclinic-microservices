@@ -59,10 +59,8 @@ import org.springframework.test.web.servlet.MockMvc;
 @WebMvcTest(VetResource.class)
 @ActiveProfiles("test")
 class VetResourceTest {
-
     @Autowired
     MockMvc mvc;
-
     @MockBean
     VetRepository vetRepository;
 
@@ -75,9 +73,10 @@ class VetResourceTest {
         given(vetRepository.findAll()).willReturn(asList(vet));
 
         mvc.perform(get("/vets").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$[0].id").value(1));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(1));
     }
+
     @Test
     void testGetterAndSetter() {
         Vet vet = new Vet();
@@ -114,7 +113,7 @@ class VetResourceTest {
         vet.addSpecialty(s2);
 
         List<Specialty> sorted = vet.getSpecialties();
-        assertEquals("Anesthesia", sorted.get(0).getName());  // Đầu tiên phải là "Anesthesia" (A < D)
+        assertEquals("Anesthesia", sorted.get(0).getName()); // Đầu tiên phải là "Anesthesia" (A < D)
         assertEquals("Dentistry", sorted.get(1).getName());
     }
 
@@ -128,7 +127,7 @@ class VetResourceTest {
     @Test
     void shouldFailValidationWhenFirstNameIsBlank() {
         Vet vet = new Vet();
-        vet.setFirstName("");  // Vi phạm @NotBlank
+        vet.setFirstName(""); // Vi phạm @NotBlank
         vet.setLastName("Doe");
 
         Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
@@ -143,15 +142,15 @@ class VetResourceTest {
         Vet vet = new Vet();
         assertThrows(IllegalArgumentException.class, () -> vet.addSpecialty(null));
     }
-    
+
     @Test
     void shouldNotAddDuplicateSpecialties() {
         Vet vet = new Vet();
         Specialty s1 = new Specialty();
         s1.setName("Surgery");
         vet.addSpecialty(s1);
-        vet.addSpecialty(s1);  // Thêm cùng specialty 2 lần
+        vet.addSpecialty(s1); // Thêm cùng specialty 2 lần
 
-        assertEquals(1, vet.getNrOfSpecialties());  // Chỉ giữ lại 1
+        assertEquals(1, vet.getNrOfSpecialties()); // Chỉ giữ lại 1
     }
 }
