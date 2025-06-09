@@ -66,26 +66,25 @@ pipeline {
 
                             junit "${service}/target/surefire-reports/*.xml"
 
-                            // Kiểm tra coverage từ file jacoco.xml
-                            def reportFile = "${service}/target/site/jacoco/jacoco.xml"
-                            def coverage = sh(
-                                script: """
-                                    xpath -q -e "/report/counter[@type='INSTRUCTION']/@covered" ${reportFile} | awk -F'[="]' '{print \$2}' > covered.txt
-                                    xpath -q -e "/report/counter[@type='INSTRUCTION']/@missed" ${reportFile} | awk -F'[="]' '{print \$2}' > missed.txt
-                                    covered=\$(cat covered.txt)
-                                    missed=\$(cat missed.txt)
-                                    total=\$((covered + missed))
-                                    percent=\$((100 * covered / total))
-                                    echo \$percent
-                                """,
-                                returnStdout: true
-                            ).trim()
+                            def jacocoXml = readFile("${service}/target/site/jacoco/jacoco.xml")
+def matcherCovered = jacocoXml =~ /<counter type="INSTRUCTION" missed="\d+" covered="(\d+)"/
+def matcherMissed = jacocoXml =~ /<counter type="INSTRUCTION" missed="(\d+)" covered="\d+"/
 
-                            echo "📊 Code coverage for ${service}: ${coverage}%"
+if (matcherCovered && matcherMissed) {
+    def covered = matcherCovered[0][1].toInteger()
+    def missed = matcherMissed[0][1].toInteger()
+    def total = covered + missed
+    def percent = (covered * 100) / total
 
-                            if (coverage.toInteger() < 70) {
-                                error "❌ Coverage too low for ${service} (${coverage}%). Must be >= 70%."
-                            }
+    echo "📊 Code coverage for ${service}: ${percent}%"
+
+    if (percent < 70) {
+        error "❌ Coverage too low for ${service} (${percent}%). Must be >= 70%."
+    }
+} else {
+    error "⚠️ Could not extract coverage info from jacoco.xml for ${service}"
+}
+
 
                         } catch (e) {
                             echo "❗ Test failed for ${service}: ${e}"
