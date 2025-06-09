@@ -61,6 +61,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class VetResourceTest {
     @Autowired
     MockMvc mvc;
+
     @MockBean
     VetRepository vetRepository;
 
