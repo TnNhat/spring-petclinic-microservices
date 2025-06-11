@@ -1,9 +1,9 @@
 pipeline {
     agent { label 'built-in' }
+
     environment {
-        SERVICES = getServices()
         REGISTRY_URL = "docker.io"
-        DOCKER_IMAGE_BASENAME = "thuanlp"
+        DOCKER_IMAGE_BASENAME = "anthonynhat"  // đổi thành "thuanlp" nếu cần
     }
 
     stages {
@@ -15,48 +15,119 @@ pipeline {
                     try {
                         if (env.BRANCH_NAME == 'main') {
                             sh 'git fetch --tags'
-                            
                             def commitId = sh(script: "git rev-parse --short HEAD || true", returnStdout: true).trim()
                             def tag = sh(script: "git tag --contains ${commitId} || true", returnStdout: true).trim()
                             if (tag) {
                                 env.GIT_TAG = tag
-                                echo "Found Tag: ${env.GIT_TAG}"
                             } else {
                                 env.GIT_TAG = "latest"
                             }
                         } else {
-                            error("Failed to determine tag")
+                            def commitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                            env.GIT_TAG = commitId
                         }
+                        echo "GIT_TAG: ${env.GIT_TAG}"
                     } catch (Exception e) {
-                        error("Failed to determine tag : ${e.getMessage()}")
+                        echo "Failed to determine tag: ${e.getMessage()}"
+                        env.GIT_TAG = "latest"
                     }
                 }
             }
         }
 
-
         stage('Detect Changes') {
             steps {
                 script {
-                    env.SERVICES = getServices()
-                    if (env.SERVICES == "NONE") {
-                        echo "No relevant changes detected. Skipping build."
-                        error("No relevant changes detected")
+                    env.CHANGED_SERVICES = getChangedServices()
+                    if (env.BRANCH_NAME == 'main') {
+                        env.SERVICES_TO_BUILD = getAllServices().join(',')
+                        echo "Main branch: Building all services"
                     } else {
-                        echo "Detected changes in services: ${env.SERVICES}"
+                        if (env.CHANGED_SERVICES == "NONE") {
+                            echo "No relevant changes detected. Skipping build."
+                            error("No relevant changes detected")
+                        } else {
+                            echo "Detected changed services: ${env.CHANGED_SERVICES}"
+                            env.SERVICES_TO_BUILD = env.CHANGED_SERVICES
+                        }
                     }
+                }
+            }
+        }
+
+        stage('Run Unit Test') {
+            when {
+                expression { env.BRANCH_NAME != 'main' && env.SERVICES_TO_BUILD?.trim() }
+            }
+            steps {
+                script {
+                    def services = env.SERVICES_TO_BUILD.split(',')
+                    def coverageResults = []
+                    def buildableServices = []
+                    def parallelTests = [:]
+
+                    services.each { service ->
+                        parallelTests[service] = {
+                            stage("Test: ${service}") {
+                                try {
+                                    sh "mvn test -pl ${service} -DskipTests=false"
+                                    sh "mvn jacoco:report -pl ${service}"
+
+                                    def reportPath = "${service}/target/site/jacoco/index.html"
+                                    def resultPath = "${service}/target/surefire-reports/*.txt"
+                                    def coverage = 0
+
+                                    if (fileExists(reportPath)) {
+                                        archiveArtifacts artifacts: resultPath, fingerprint: true
+                                        archiveArtifacts artifacts: reportPath, fingerprint: true
+
+                                        coverage = sh(
+                                            script: """
+                                            grep -oP '(?<=<td class="ctr2">)\\d+%' ${reportPath} | head -1 | sed 's/%//'
+                                            """,
+                                            returnStdout: true
+                                        ).trim()
+
+                                        if (!coverage) {
+                                            echo "⚠️ Coverage extraction failed"
+                                            coverage = 0
+                                        } else {
+                                            coverage = coverage.toInteger()
+                                        }
+                                    } else {
+                                        echo "⚠️ No coverage report found"
+                                    }
+
+                                    echo "📊 ${service}: ${coverage}%"
+                                    coverageResults << "${service}:${coverage}%"
+
+                                    if (coverage < 70) {
+                                        error "❌ ${service} test coverage too low: ${coverage}%"
+                                    } else {
+                                        buildableServices << service
+                                    }
+                                } catch (Exception e) {
+                                    echo "❌ Error testing ${service}: ${e.getMessage()}"
+                                }
+                            }
+                        }
+                    }
+
+                    parallel parallelTests
+
+                    env.CODE_COVERAGES = coverageResults.join(', ')
+                    env.SERVICES_TO_BUILD = buildableServices.join(',')
                 }
             }
         }
 
         stage('Build Services') {
             when {
-                expression { env.SERVICES.trim() }
+                expression { env.SERVICES_TO_BUILD?.trim() }
             }
             steps {
                 script {
-                    sh "apt update && apt install -y maven"
-                    def services = env.SERVICES.split(',')
+                    def services = env.SERVICES_TO_BUILD.split(',')
                     def parallelBuilds = [:]
 
                     services.each { service ->
@@ -65,11 +136,9 @@ pipeline {
                                 try {
                                     echo "🚀 Building: ${service}"
                                     sh "mvn clean package -pl ${service} -DfinalName=app -DskipTests"
-                                    
-                                    def jarfile = "${service}/target/app.jar"
-                                    archiveArtifacts artifacts: jarfile, fingerprint: true
+                                    archiveArtifacts artifacts: "${service}/target/app.jar", fingerprint: true
                                 } catch (Exception e) {
-                                    echo "❌ Build failed for ${service}: ${e.getMessage()}"
+                                    echo "❌ Build failed: ${e.getMessage()}"
                                     error("Build failed for ${service}")
                                 }
                             }
@@ -81,25 +150,24 @@ pipeline {
             }
         }
 
-
         stage('Build Docker Image') {
             when {
-                expression { env.SERVICES.trim() && env.GIT_TAG }
+                expression { env.SERVICES_TO_BUILD?.trim() && env.GIT_TAG }
             }
             steps {
                 script {
-                    def services = env.SERVICES.split(',')
+                    def services = env.SERVICES_TO_BUILD.split(',')
                     def parallelDockerBuilds = [:]
 
                     services.each { service ->
                         parallelDockerBuilds[service] = {
                             stage("Docker Build: ${service}") {
                                 try {
-                                    echo "🐳 Building Docker Image for: ${service}"
+                                    echo "🐳 Building Docker for: ${service}"
                                     sh "docker build --build-arg ARTIFACT_NAME=${service}/target/app -t ${DOCKER_IMAGE_BASENAME}/${service}:${env.GIT_TAG} -f docker/Dockerfile ."
                                 } catch (Exception e) {
-                                    echo "❌ Docker Build failed for ${service}: ${e.getMessage()}"
-                                    error("Docker Build failed for ${service}")
+                                    echo "❌ Docker Build failed: ${e.getMessage()}"
+                                    error("Docker build failed for ${service}")
                                 }
                             }
                         }
@@ -122,42 +190,43 @@ pipeline {
 
         stage('Push Docker Image') {
             when {
-                expression { env.SERVICES.trim() && env.GIT_TAG }
+                expression { env.SERVICES_TO_BUILD?.trim() && env.GIT_TAG }
             }
             steps {
                 script {
-                    def services = env.SERVICES.split(',')
-                    def parallelDockerPush = [:]
+                    def services = env.SERVICES_TO_BUILD.split(',')
+                    def parallelPush = [:]
 
                     services.each { service ->
-                        parallelDockerPush[service] = {
+                        parallelPush[service] = {
                             stage("Docker Push: ${service}") {
                                 try {
-                                    echo "🐳 Push Docker Image for: ${service}"
+                                    echo "🐳 Pushing Docker: ${service}"
                                     sh "docker push ${DOCKER_IMAGE_BASENAME}/${service}:${env.GIT_TAG}"
                                 } catch (Exception e) {
-                                    echo "❌ Docker Push failed for ${service}: ${e.getMessage()}"
-                                    error("Docker Push failed for ${service}")
+                                    echo "❌ Push failed: ${e.getMessage()}"
+                                    error("Docker push failed for ${service}")
                                 }
                             }
                         }
                     }
 
-                    parallel parallelDockerPush 
+                    parallel parallelPush
                 }
             }
         }
-   }
+    }
 
     post {
         always {
             echo 'Cleaning up...'
             sh "docker logout ${REGISTRY_URL}"
         }
+
         success {
             publishChecks(
                 name: 'PipelineResult',
-                title: 'Code Coverage Check Success',
+                title: '✅ Pipeline Success',
                 status: 'COMPLETED',
                 conclusion: 'SUCCESS',
                 summary: 'Pipeline completed successfully.',
@@ -168,19 +237,32 @@ pipeline {
         failure {
             publishChecks(
                 name: 'PipelineResult',
-                title: 'Code Coverage Check Fail',
+                title: '❌ Pipeline Failed',
                 status: 'COMPLETED',
-                conclusion: 'FAILURE', 
-                summary: 'Pipeline failed. Check logs for details.',
+                conclusion: 'FAILURE',
+                summary: 'Pipeline failed. Check logs.',
                 detailsURL: env.BUILD_URL
             )
         }
     }
-
 }
 
-def getServices() {
-    def services = [
+// Detect changed services in feature branches
+def getChangedServices() {
+    def changedFiles = sh(script: "git diff --name-only origin/${env.BRANCH_NAME}~1 origin/${env.BRANCH_NAME}", returnStdout: true).trim().split("\n")
+    def services = getAllServices()
+
+    def affected = services.findAll { service ->
+        changedFiles.any { file -> file.startsWith(service + "/") }
+    }
+
+    if (affected.isEmpty()) return "NONE"
+    return affected.join(',')
+}
+
+// Full list of services
+def getAllServices() {
+    return [
         'spring-petclinic-customers-service', 
         'spring-petclinic-vets-service',
         'spring-petclinic-visits-service',
@@ -188,7 +270,6 @@ def getServices() {
         'spring-petclinic-config-server',
         'spring-petclinic-discovery-server',
         'spring-petclinic-genai-service',
-        'spring-petclinic-api-gateway',
+        'spring-petclinic-api-gateway'
     ]
-    return services.join(',')
 }
