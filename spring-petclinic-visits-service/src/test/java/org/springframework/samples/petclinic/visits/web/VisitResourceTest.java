@@ -27,6 +27,7 @@ import java.util.List;
 class VisitResourceTest {
         @Autowired
         MockMvc mvc;
+
         @MockBean
         VisitRepository visitRepository;
         private final ObjectMapper objectMapper = new ObjectMapper();
