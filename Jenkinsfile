@@ -1,10 +1,9 @@
 pipeline {
     agent { label 'built-in' }
-
     environment {
         CHANGED_SERVICES = getChangedServices()
         REGISTRY_URL = "docker.io"
-        DOCKER_IMAGE_BASENAME = "thuanlp"
+        DOCKER_IMAGE_BASENAME = "anthonynhat"
     }
 
     stages {
@@ -46,7 +45,6 @@ pipeline {
             }
             steps {
                 script {
-                    sh "apt update && apt install -y maven"
                     def services = env.CHANGED_SERVICES.split(',')
                     def coverageResults = []
                     def servicesToBuild = []
@@ -177,11 +175,14 @@ pipeline {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh "echo $DOCKER_PASS | docker login ${REGISTRY_URL} -u $DOCKER_USER --password-stdin"
+                        sh '''
+                            echo "$DOCKER_PASS" | docker login ${REGISTRY_URL} -u "$DOCKER_USER" --password-stdin
+                        '''
                     }
                 }
             }
         }
+
 
         stage('Push Docker Image') {
             when {
