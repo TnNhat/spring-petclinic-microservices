@@ -192,28 +192,28 @@ pipeline {
 
         stage('Push Docker Image') {
             when {
-                expression { env.SERVICES_TO_BUILD?.trim() && env.GIT_TAG }
+                expression { env.SERVICES_TO_BUILD && env.SERVICES_TO_BUILD.trim() && env.GIT_TAG }
             }
             steps {
                 script {
                     def services = env.SERVICES_TO_BUILD.split(',')
-                    def parallelPush = [:]
+                    def parallelDockerPush = [:]
 
                     services.each { service ->
-                        parallelPush[service] = {
+                        parallelDockerPush[service] = {
                             stage("Docker Push: ${service}") {
                                 try {
-                                    echo "🐳 Pushing Docker: ${service}"
+                                    echo "🐳 Push Docker Image for: ${service}"
                                     sh "docker push ${DOCKER_IMAGE_BASENAME}/${service}:${env.GIT_TAG}"
                                 } catch (Exception e) {
-                                    echo "❌ Push failed: ${e.getMessage()}"
-                                    error("Docker push failed for ${service}")
+                                    echo "❌ Docker Push failed for ${service}: ${e.getMessage()}"
+                                    error("Docker Push failed for ${service}")
                                 }
                             }
                         }
                     }
 
-                    parallel parallelPush
+                    parallel parallelDockerPush 
                 }
             }
         }
