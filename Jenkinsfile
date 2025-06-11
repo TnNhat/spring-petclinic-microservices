@@ -3,7 +3,7 @@ pipeline {
     environment {
         SERVICES = getServices()
         REGISTRY_URL = "docker.io"
-        DOCKER_IMAGE_BASENAME = "tnjenkin"
+        DOCKER_IMAGE_BASENAME = "thuanlp"
     }
 
     stages {
@@ -48,58 +48,6 @@ pipeline {
                 }
             }
         }
-        stage('Run Tests') {
-    when {
-        expression { env.SERVICES?.trim() && env.SERVICES != "NONE" }
-    }
-    steps {
-        script {
-            def services = env.SERVICES.split(',')
-            def parallelTests = [:]
-
-            services.each { service ->
-                parallelTests[service] = {
-                    stage("Test: ${service}") {
-                        try {
-                            echo "🔍 Running tests for ${service}"
-                            sh "mvn test -pl ${service} -Djacoco.skip=false"
-
-                            junit "${service}/target/surefire-reports/*.xml"
-
-                            def jacocoXml = readFile("${service}/target/site/jacoco/jacoco.xml")
-def matcherCovered = jacocoXml =~ /<counter type="INSTRUCTION" missed="\d+" covered="(\d+)"/
-def matcherMissed = jacocoXml =~ /<counter type="INSTRUCTION" missed="(\d+)" covered="\d+"/
-
-if (matcherCovered && matcherMissed) {
-    def covered = matcherCovered[0][1].toInteger()
-    def missed = matcherMissed[0][1].toInteger()
-    def total = covered + missed
-    def percent = (covered * 100) / total
-
-    echo "📊 Code coverage for ${service}: ${percent}%"
-
-    if (percent < 70) {
-        error "❌ Coverage too low for ${service} (${percent}%). Must be >= 70%."
-    }
-} else {
-    error "⚠️ Could not extract coverage info from jacoco.xml for ${service}"
-}
-
-
-                        } catch (e) {
-                            echo "❗ Test failed for ${service}: ${e}"
-                            throw e
-                        }
-                    }
-                }
-            }
-
-            parallel parallelTests
-        }
-    }
-}
-
-
 
         stage('Build Services') {
             when {
@@ -107,6 +55,7 @@ if (matcherCovered && matcherMissed) {
             }
             steps {
                 script {
+                    sh "apt update && apt install -y maven"
                     def services = env.SERVICES.split(',')
                     def parallelBuilds = [:]
 
@@ -241,22 +190,5 @@ def getServices() {
         'spring-petclinic-genai-service',
         'spring-petclinic-api-gateway',
     ]
-
-    // Lấy danh sách file thay đổi giữa commit hiện tại và commit trước đó
-    def changedFiles = sh(
-        script: "git diff --name-only HEAD~1 HEAD",
-        returnStdout: true
-    ).trim().split('\n')
-
-    def changedServices = services.findAll { service ->
-        changedFiles.any { changedFile ->
-            // Kiểm tra nếu file thay đổi nằm trong thư mục service
-            changedFile.startsWith("${service}/")
-        }
-    }
-
-    if (changedServices.isEmpty()) {
-        return "NONE"
-    }
-    return changedServices.join(',')
+    return services.join(',')
 }
